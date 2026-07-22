@@ -1,5 +1,6 @@
-// CRUD de compras. La inclusión como gasto vinculado es opcional y no duplica.
-import { useState } from "react";
+// CRUD de compras con categoría, búsqueda y filtros (pagador, rango de fechas).
+// El gasto vinculado usa categoría general "Compra" (no la categoría de la compra).
+import { useMemo, useState } from "react";
 import type { Purchase, Trip, UUID } from "../lib/types";
 import { newId } from "../lib/storage";
 import {
@@ -14,10 +15,50 @@ interface Props {
   onUpdateTrip: (t: Trip) => void;
 }
 
+const CATEGORIAS_COMPRA = [
+  "Artesanía",
+  "Souvenir",
+  "Regalo",
+  "Comida",
+  "Ropa",
+  "Otro",
+];
+
 export function Compras({ trip, onUpdateTrip }: Props) {
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroPagador, setFiltroPagador] = useState<UUID | "">("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Purchase | null>(null);
   const [borrar, setBorrar] = useState<Purchase | null>(null);
+
+  const filtradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return trip.compras
+      .filter((c) => (filtroPagador ? c.pagadoPor === filtroPagador : true))
+      .filter((c) => (fechaDesde ? c.fecha >= fechaDesde : true))
+      .filter((c) => (fechaHasta ? c.fecha <= fechaHasta : true))
+      .filter((c) => {
+        if (!q) return true;
+        const destinatario = participantName(trip, c.destinatario).toLowerCase();
+        return (
+          c.producto.toLowerCase().includes(q) ||
+          c.categoria.toLowerCase().includes(q) ||
+          destinatario.includes(q) ||
+          (c.notas ?? "").toLowerCase().includes(q)
+        );
+      })
+      .slice()
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [trip.compras, trip, busqueda, filtroPagador, fechaDesde, fechaHasta]);
+
+  function limpiar() {
+    setBusqueda("");
+    setFiltroPagador("");
+    setFechaDesde("");
+    setFechaHasta("");
+  }
 
   function guardar(c: Purchase) {
     const existente = trip.compras.some((p) => p.id === c.id);
@@ -48,6 +89,39 @@ export function Compras({ trip, onUpdateTrip }: Props) {
         </button>
       </header>
 
+      <div className="card-surface grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="lg:col-span-2">
+          <label htmlFor="c-busq" className="field-label">Buscar</label>
+          <input
+            id="c-busq"
+            className="field-input"
+            placeholder="Producto, categoría, destinatario o notas"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="c-pag" className="field-label">Pagador</label>
+          <select id="c-pag" className="field-input" value={filtroPagador} onChange={(e) => setFiltroPagador(e.target.value as UUID | "")}>
+            <option value="">Todos</option>
+            {trip.participantes.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label htmlFor="c-fd" className="field-label">Desde</label>
+            <input id="c-fd" type="date" className="field-input" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+          </div>
+          <div>
+            <label htmlFor="c-fh" className="field-label">Hasta</label>
+            <input id="c-fh" type="date" className="field-input" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+          </div>
+        </div>
+        <div className="flex items-end lg:col-span-4">
+          <button type="button" className="btn-ghost" onClick={limpiar}>Limpiar filtros</button>
+        </div>
+      </div>
+
       <div className="card-surface overflow-x-auto p-0">
         <table className="w-full text-sm">
           <caption className="sr-only">Lista de compras del viaje</caption>
@@ -55,6 +129,7 @@ export function Compras({ trip, onUpdateTrip }: Props) {
             <tr>
               <th className="p-3 text-left">Fecha</th>
               <th className="p-3 text-left">Producto</th>
+              <th className="p-3 text-left">Categoría</th>
               <th className="p-3 text-right">Cant.</th>
               <th className="p-3 text-right">P. unit.</th>
               <th className="p-3 text-right">Total</th>
@@ -65,49 +140,43 @@ export function Compras({ trip, onUpdateTrip }: Props) {
             </tr>
           </thead>
           <tbody>
-            {trip.compras.length === 0 && (
+            {filtradas.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-6 text-center text-muted-foreground">
-                  Sin compras registradas.
+                <td colSpan={10} className="p-6 text-center text-muted-foreground">
+                  Sin compras que coincidan.
                 </td>
               </tr>
             )}
-            {trip.compras
-              .slice()
-              .sort((a, b) => b.fecha.localeCompare(a.fecha))
-              .map((c) => {
-                const total = c.cantidad * c.precioUnitario;
-                return (
-                  <tr key={c.id} className="border-t">
-                    <td className="p-3">{c.fecha}</td>
-                    <td className="p-3">{c.producto}</td>
-                    <td className="p-3 text-right">{c.cantidad}</td>
-                    <td className="p-3 text-right">{c.precioUnitario.toFixed(2)}</td>
-                    <td className="p-3 text-right font-medium">
-                      {total.toFixed(2)} {trip.moneda}
-                    </td>
-                    <td className="p-3">{participantName(trip, c.destinatario)}</td>
-                    <td className="p-3">{participantName(trip, c.pagadoPor)}</td>
-                    <td className="p-3">
-                      {c.incluirComoGasto ? (
-                        <span className="badge-status bg-emerald text-emerald-foreground">Sí</span>
-                      ) : (
-                        <span className="text-muted-foreground">No</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button type="button" className="btn-ghost" onClick={() => setEditando(c)}>
-                          Editar
-                        </button>
-                        <button type="button" className="btn-danger" onClick={() => setBorrar(c)}>
-                          Eliminar
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+            {filtradas.map((c) => {
+              const total = c.cantidad * c.precioUnitario;
+              return (
+                <tr key={c.id} className="border-t">
+                  <td className="p-3 whitespace-nowrap">{c.fecha}</td>
+                  <td className="p-3">{c.producto}</td>
+                  <td className="p-3">{c.categoria}</td>
+                  <td className="p-3 text-right">{c.cantidad}</td>
+                  <td className="p-3 text-right">{c.precioUnitario.toFixed(2)}</td>
+                  <td className="p-3 text-right font-medium whitespace-nowrap">
+                    {total.toFixed(2)} {trip.moneda}
+                  </td>
+                  <td className="p-3">{participantName(trip, c.destinatario)}</td>
+                  <td className="p-3">{participantName(trip, c.pagadoPor)}</td>
+                  <td className="p-3">
+                    {c.incluirComoGasto ? (
+                      <span className="badge-status bg-emerald text-emerald-foreground">Sí</span>
+                    ) : (
+                      <span className="text-muted-foreground">No</span>
+                    )}
+                  </td>
+                  <td className="p-3 text-right">
+                    <div className="flex justify-end gap-2">
+                      <button type="button" className="btn-ghost" onClick={() => setEditando(c)}>Editar</button>
+                      <button type="button" className="btn-danger" onClick={() => setBorrar(c)}>Eliminar</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -148,6 +217,7 @@ function CompraForm({
 }) {
   const [fecha, setFecha] = useState(compra?.fecha ?? trip.fechaInicio);
   const [producto, setProducto] = useState(compra?.producto ?? "");
+  const [categoria, setCategoria] = useState(compra?.categoria ?? "Otro");
   const [cantidad, setCantidad] = useState<number>(compra?.cantidad ?? 1);
   const [precioUnitario, setPrecioUnitario] = useState<number>(compra?.precioUnitario ?? 0);
   const [destinatario, setDestinatario] = useState<UUID>(compra?.destinatario ?? trip.participantes[0].id);
@@ -161,6 +231,7 @@ function CompraForm({
       id: compra?.id ?? newId(),
       fecha,
       producto: producto.trim(),
+      categoria: categoria.trim() || "Otro",
       cantidad: Number(cantidad) || 0,
       precioUnitario: Number(precioUnitario) || 0,
       destinatario,
@@ -195,8 +266,24 @@ function CompraForm({
           </div>
           <div>
             <label htmlFor="cf-prod" className="field-label">Producto</label>
-            <input id="cf-prod" required className="field-input" value={producto} onChange={(e) => setProducto(e.target.value)} />
+            <input id="cf-prod" required maxLength={120} className="field-input" value={producto} onChange={(e) => setProducto(e.target.value)} />
           </div>
+          <div>
+            <label htmlFor="cf-cat" className="field-label">Categoría</label>
+            <input
+              id="cf-cat"
+              required
+              maxLength={60}
+              list="cf-cat-list"
+              className="field-input"
+              value={categoria}
+              onChange={(e) => setCategoria(e.target.value)}
+            />
+            <datalist id="cf-cat-list">
+              {CATEGORIAS_COMPRA.map((c) => <option key={c} value={c} />)}
+            </datalist>
+          </div>
+          <div />
           <div>
             <label htmlFor="cf-cant" className="field-label">Cantidad</label>
             <input id="cf-cant" type="number" min="1" step="1" required className="field-input" value={cantidad} onChange={(e) => setCantidad(Number(e.target.value))} />
@@ -226,12 +313,12 @@ function CompraForm({
               onChange={(e) => setIncluir(e.target.checked)}
             />
             <label htmlFor="cf-incl" className="text-sm">
-              Incluir como gasto vinculado (total {total.toFixed(2)} {trip.moneda})
+              Incluir como gasto vinculado (total {total.toFixed(2)} {trip.moneda}, categoría <em>Compra</em>)
             </label>
           </div>
           <div className="sm:col-span-2">
             <label htmlFor="cf-notas" className="field-label">Notas</label>
-            <textarea id="cf-notas" className="field-input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} />
+            <textarea id="cf-notas" className="field-input" rows={2} maxLength={500} value={notas} onChange={(e) => setNotas(e.target.value)} />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

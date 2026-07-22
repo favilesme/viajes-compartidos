@@ -1,5 +1,6 @@
-// CRUD de gastos con búsqueda y filtros. Los gastos vinculados a actividades
-// o compras se muestran como solo lectura y se editan en su origen.
+// CRUD de gastos con búsqueda, filtros (categoría, pagador, rango de fechas)
+// y botón Limpiar. Los gastos vinculados a actividades o compras son solo
+// lectura y deben editarse en su origen; los manuales aceptan observaciones.
 import { useMemo, useState } from "react";
 import type { Expense, Trip, UUID } from "../lib/types";
 import { newId } from "../lib/storage";
@@ -17,6 +18,8 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
   const [busqueda, setBusqueda] = useState("");
   const [filtroCategoria, setFiltroCategoria] = useState<string>("");
   const [filtroPagador, setFiltroPagador] = useState<UUID | "">("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
   const [editando, setEditando] = useState<Expense | null>(null);
   const [creando, setCreando] = useState(false);
   const [borrar, setBorrar] = useState<Expense | null>(null);
@@ -26,14 +29,25 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
     return trip.gastos
       .filter((g) => (filtroCategoria ? g.categoria === filtroCategoria : true))
       .filter((g) => (filtroPagador ? g.pagadoPor === filtroPagador : true))
+      .filter((g) => (fechaDesde ? g.fecha >= fechaDesde : true))
+      .filter((g) => (fechaHasta ? g.fecha <= fechaHasta : true))
       .filter((g) =>
         q
           ? g.descripcion.toLowerCase().includes(q) ||
-            g.categoria.toLowerCase().includes(q)
+            g.categoria.toLowerCase().includes(q) ||
+            (g.notas ?? "").toLowerCase().includes(q)
           : true,
       )
       .sort((a, b) => b.fecha.localeCompare(a.fecha));
-  }, [trip.gastos, busqueda, filtroCategoria, filtroPagador]);
+  }, [trip.gastos, busqueda, filtroCategoria, filtroPagador, fechaDesde, fechaHasta]);
+
+  function limpiar() {
+    setBusqueda("");
+    setFiltroCategoria("");
+    setFiltroPagador("");
+    setFechaDesde("");
+    setFechaHasta("");
+  }
 
   function guardar(gasto: Expense) {
     const existente = trip.gastos.some((g) => g.id === gasto.id);
@@ -59,44 +73,43 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
         </button>
       </header>
 
-      <div className="card-surface grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div>
+      <div className="card-surface grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="lg:col-span-2">
           <label htmlFor="g-busq" className="field-label">Buscar</label>
           <input
             id="g-busq"
             className="field-input"
-            placeholder="Descripción o categoría"
+            placeholder="Descripción, categoría o notas"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
           />
         </div>
         <div>
           <label htmlFor="g-cat" className="field-label">Categoría</label>
-          <select
-            id="g-cat"
-            className="field-input"
-            value={filtroCategoria}
-            onChange={(e) => setFiltroCategoria(e.target.value)}
-          >
+          <select id="g-cat" className="field-input" value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)}>
             <option value="">Todas</option>
-            {CATEGORIAS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
+            {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
           <label htmlFor="g-pag" className="field-label">Pagador</label>
-          <select
-            id="g-pag"
-            className="field-input"
-            value={filtroPagador}
-            onChange={(e) => setFiltroPagador(e.target.value as UUID | "")}
-          >
+          <select id="g-pag" className="field-input" value={filtroPagador} onChange={(e) => setFiltroPagador(e.target.value as UUID | "")}>
             <option value="">Todos</option>
-            {trip.participantes.map((p) => (
-              <option key={p.id} value={p.id}>{p.nombre}</option>
-            ))}
+            {trip.participantes.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
           </select>
+        </div>
+        <div>
+          <label htmlFor="g-fd" className="field-label">Desde</label>
+          <input id="g-fd" type="date" className="field-input" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="g-fh" className="field-label">Hasta</label>
+          <input id="g-fh" type="date" className="field-input" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+        </div>
+        <div className="flex items-end lg:col-span-5">
+          <button type="button" className="btn-ghost" onClick={limpiar}>
+            Limpiar filtros
+          </button>
         </div>
       </div>
 
@@ -108,6 +121,7 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
               <th className="p-3 text-left">Fecha</th>
               <th className="p-3 text-left">Categoría</th>
               <th className="p-3 text-left">Descripción</th>
+              <th className="p-3 text-left">Notas</th>
               <th className="p-3 text-right">Monto</th>
               <th className="p-3 text-left">Pagó</th>
               <th className="p-3 text-left">Origen</th>
@@ -117,7 +131,7 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
           <tbody>
             {filtrados.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                <td colSpan={8} className="p-6 text-center text-muted-foreground">
                   Sin gastos que coincidan.
                 </td>
               </tr>
@@ -126,10 +140,11 @@ export function Gastos({ trip, onUpdateTrip }: Props) {
               const vinculado = g.source.type !== "manual";
               return (
                 <tr key={g.id} className="border-t">
-                  <td className="p-3">{g.fecha}</td>
+                  <td className="p-3 whitespace-nowrap">{g.fecha}</td>
                   <td className="p-3">{g.categoria}</td>
                   <td className="p-3">{g.descripcion}</td>
-                  <td className="p-3 text-right font-medium">
+                  <td className="p-3 text-muted-foreground">{g.notas ?? "—"}</td>
+                  <td className="p-3 text-right font-medium whitespace-nowrap">
                     {g.monto.toFixed(2)} {trip.moneda}
                   </td>
                   <td className="p-3">{participantName(trip, g.pagadoPor)}</td>
@@ -212,6 +227,7 @@ function GastoForm({
   const [descripcion, setDescripcion] = useState(gasto?.descripcion ?? "");
   const [monto, setMonto] = useState<number>(gasto?.monto ?? 0);
   const [pagadoPor, setPagadoPor] = useState<UUID>(gasto?.pagadoPor ?? trip.participantes[0].id);
+  const [notas, setNotas] = useState(gasto?.notas ?? "");
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -222,6 +238,7 @@ function GastoForm({
       descripcion: descripcion.trim(),
       monto: Number(monto) || 0,
       pagadoPor,
+      notas: notas.trim() || undefined,
       source: gasto?.source ?? { type: "manual" },
     });
   }
@@ -255,7 +272,7 @@ function GastoForm({
           </div>
           <div className="sm:col-span-2">
             <label htmlFor="gf-desc" className="field-label">Descripción</label>
-            <input id="gf-desc" required className="field-input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
+            <input id="gf-desc" required maxLength={140} className="field-input" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
           </div>
           <div>
             <label htmlFor="gf-monto" className="field-label">Monto ({trip.moneda})</label>
@@ -266,6 +283,10 @@ function GastoForm({
             <select id="gf-pag" className="field-input" value={pagadoPor} onChange={(e) => setPagadoPor(e.target.value)}>
               {trip.participantes.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
             </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label htmlFor="gf-notas" className="field-label">Observaciones</label>
+            <textarea id="gf-notas" className="field-input" rows={2} maxLength={500} value={notas} onChange={(e) => setNotas(e.target.value)} />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">

@@ -1,6 +1,6 @@
-// CRUD de actividades. Al pasar a "realizada" se crea o actualiza el gasto
-// vinculado sin duplicar; al cambiar de estado o borrar se elimina.
-import { useState } from "react";
+// CRUD de actividades con búsqueda y filtros (estado, responsable, rango de fechas).
+// Al pasar a "realizada" con costo > 0 se crea/actualiza el gasto vinculado sin duplicar.
+import { useMemo, useState } from "react";
 import type { Activity, ActivityStatus, Trip, UUID } from "../lib/types";
 import { newId } from "../lib/storage";
 import {
@@ -18,16 +18,46 @@ interface Props {
 const ESTADOS: ActivityStatus[] = ["planificada", "realizada", "cancelada"];
 
 export function Actividades({ trip, onUpdateTrip }: Props) {
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState<ActivityStatus | "">("");
+  const [filtroPagador, setFiltroPagador] = useState<UUID | "">("");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<Activity | null>(null);
   const [borrar, setBorrar] = useState<Activity | null>(null);
+
+  const filtradas = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return trip.actividades
+      .filter((a) => (filtroEstado ? a.estado === filtroEstado : true))
+      .filter((a) => (filtroPagador ? a.pagadoPor === filtroPagador : true))
+      .filter((a) => (fechaDesde ? a.fecha >= fechaDesde : true))
+      .filter((a) => (fechaHasta ? a.fecha <= fechaHasta : true))
+      .filter((a) =>
+        q
+          ? a.titulo.toLowerCase().includes(q) ||
+            a.lugar.toLowerCase().includes(q) ||
+            (a.notas ?? "").toLowerCase().includes(q)
+          : true,
+      )
+      .slice()
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }, [trip.actividades, busqueda, filtroEstado, filtroPagador, fechaDesde, fechaHasta]);
+
+  function limpiar() {
+    setBusqueda("");
+    setFiltroEstado("");
+    setFiltroPagador("");
+    setFechaDesde("");
+    setFechaHasta("");
+  }
 
   function guardar(act: Activity) {
     const existente = trip.actividades.some((a) => a.id === act.id);
     const nuevas = existente
       ? trip.actividades.map((a) => (a.id === act.id ? act : a))
       : [...trip.actividades, act];
-    // Sincroniza el gasto vinculado sin duplicar.
     const nuevosGastos = syncActivityExpense(trip.gastos, act);
     onUpdateTrip({ ...trip, actividades: nuevas, gastos: nuevosGastos });
     setCreando(false);
@@ -52,47 +82,72 @@ export function Actividades({ trip, onUpdateTrip }: Props) {
         </button>
       </header>
 
+      <div className="card-surface grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="lg:col-span-2">
+          <label htmlFor="a-busq" className="field-label">Buscar</label>
+          <input
+            id="a-busq"
+            className="field-input"
+            placeholder="Actividad, lugar o notas"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+          />
+        </div>
+        <div>
+          <label htmlFor="a-est" className="field-label">Estado</label>
+          <select id="a-est" className="field-input" value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value as ActivityStatus | "")}>
+            <option value="">Todos</option>
+            {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="a-resp" className="field-label">Responsable</label>
+          <select id="a-resp" className="field-input" value={filtroPagador} onChange={(e) => setFiltroPagador(e.target.value as UUID | "")}>
+            <option value="">Todos</option>
+            {trip.participantes.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="a-fd" className="field-label">Desde</label>
+          <input id="a-fd" type="date" className="field-input" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="a-fh" className="field-label">Hasta</label>
+          <input id="a-fh" type="date" className="field-input" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
+        </div>
+        <div className="flex items-end lg:col-span-5">
+          <button type="button" className="btn-ghost" onClick={limpiar}>Limpiar filtros</button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {trip.actividades.length === 0 && (
-          <p className="card-surface text-muted-foreground">Sin actividades registradas.</p>
+        {filtradas.length === 0 && (
+          <p className="card-surface text-muted-foreground">Sin actividades que coincidan.</p>
         )}
-        {trip.actividades
-          .slice()
-          .sort((a, b) => a.fecha.localeCompare(b.fecha))
-          .map((a) => (
-            <article key={a.id} className="card-surface flex flex-col justify-between">
-              <div>
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-base font-semibold">{a.titulo}</h3>
-                  <EstadoBadge estado={a.estado} />
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {a.fecha} · {a.lugar}
-                </p>
-                <p className="mt-2 text-sm">
-                  Costo:{" "}
-                  <strong>
-                    {a.costo.toFixed(2)} {trip.moneda}
-                  </strong>{" "}
-                  · Paga {participantName(trip, a.pagadoPor)}
-                </p>
-                {a.notas && <p className="mt-2 text-sm text-muted-foreground">{a.notas}</p>}
-                {a.estado === "realizada" && a.costo > 0 && (
-                  <p className="mt-2 text-xs text-emerald">
-                    ✓ Gasto vinculado activo
-                  </p>
-                )}
+        {filtradas.map((a) => (
+          <article key={a.id} className="card-surface flex flex-col justify-between">
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-base font-semibold">{a.titulo}</h3>
+                <EstadoBadge estado={a.estado} />
               </div>
-              <div className="mt-3 flex justify-end gap-2">
-                <button type="button" className="btn-ghost" onClick={() => setEditando(a)}>
-                  Editar
-                </button>
-                <button type="button" className="btn-danger" onClick={() => setBorrar(a)}>
-                  Eliminar
-                </button>
-              </div>
-            </article>
-          ))}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {a.fecha} · {a.lugar}
+              </p>
+              <p className="mt-2 text-sm">
+                Costo: <strong>{a.costo.toFixed(2)} {trip.moneda}</strong> · Paga {participantName(trip, a.pagadoPor)}
+              </p>
+              {a.notas && <p className="mt-2 text-sm text-muted-foreground">{a.notas}</p>}
+              {a.estado === "realizada" && a.costo > 0 && (
+                <p className="mt-2 text-xs text-emerald">✓ Gasto vinculado activo</p>
+              )}
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" className="btn-ghost" onClick={() => setEditando(a)}>Editar</button>
+              <button type="button" className="btn-danger" onClick={() => setBorrar(a)}>Eliminar</button>
+            </div>
+          </article>
+        ))}
       </div>
 
       {(creando || editando) && (
@@ -179,7 +234,7 @@ function ActividadForm({
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <label htmlFor="af-tit" className="field-label">Título</label>
-            <input id="af-tit" required className="field-input" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
+            <input id="af-tit" required maxLength={120} className="field-input" value={titulo} onChange={(e) => setTitulo(e.target.value)} />
           </div>
           <div>
             <label htmlFor="af-fecha" className="field-label">Fecha</label>
@@ -187,7 +242,7 @@ function ActividadForm({
           </div>
           <div>
             <label htmlFor="af-lugar" className="field-label">Lugar</label>
-            <input id="af-lugar" className="field-input" value={lugar} onChange={(e) => setLugar(e.target.value)} />
+            <input id="af-lugar" maxLength={140} className="field-input" value={lugar} onChange={(e) => setLugar(e.target.value)} />
           </div>
           <div>
             <label htmlFor="af-est" className="field-label">Estado</label>
@@ -207,7 +262,7 @@ function ActividadForm({
           </div>
           <div className="sm:col-span-2">
             <label htmlFor="af-notas" className="field-label">Notas</label>
-            <textarea id="af-notas" className="field-input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} />
+            <textarea id="af-notas" className="field-input" rows={2} maxLength={500} value={notas} onChange={(e) => setNotas(e.target.value)} />
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">

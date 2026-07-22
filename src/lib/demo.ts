@@ -50,6 +50,7 @@ function demoTrip(): Trip {
         id: "demo-compra-1",
         fecha: "2026-08-15",
         producto: "Sombrero de paja toquilla",
+        categoria: "Artesanía",
         cantidad: 2,
         precioUnitario: 35,
         destinatario: p1.id,
@@ -61,6 +62,7 @@ function demoTrip(): Trip {
         id: "demo-compra-2",
         fecha: "2026-08-16",
         producto: "Chocolate artesanal",
+        categoria: "Regalo",
         cantidad: 4,
         precioUnitario: 6,
         destinatario: p2.id,
@@ -76,6 +78,7 @@ function demoTrip(): Trip {
         descripcion: "Vuelo Quito → Cuenca (ambos)",
         monto: 180,
         pagadoPor: p1.id,
+        notas: "Ida y vuelta.",
         source: { type: "manual" },
       },
       {
@@ -87,7 +90,15 @@ function demoTrip(): Trip {
         pagadoPor: p2.id,
         source: { type: "manual" },
       },
-      // Gasto vinculado a actividad realizada
+      {
+        id: "demo-gasto-3",
+        fecha: "2026-08-15",
+        categoria: "Comida",
+        descripcion: "Almuerzo Mercado 10 de Agosto",
+        monto: 18,
+        pagadoPor: p1.id,
+        source: { type: "manual" },
+      },
       {
         id: "demo-gasto-act-1",
         fecha: "2026-08-15",
@@ -97,7 +108,6 @@ function demoTrip(): Trip {
         pagadoPor: p1.id,
         source: { type: "actividad", id: "demo-act-1" },
       },
-      // Gasto vinculado a compra marcada como gasto
       {
         id: "demo-gasto-compra-1",
         fecha: "2026-08-15",
