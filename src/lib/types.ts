@@ -22,6 +22,7 @@ export interface Expense {
   descripcion: string;
   monto: number;
   pagadoPor: UUID; // participant id
+  notas?: string;
   source: ExpenseSource;
 }
 
@@ -31,7 +32,7 @@ export interface Activity {
   fecha: string;
   lugar: string;
   estado: ActivityStatus;
-  costo: number; // costo estimado / real
+  costo: number;
   pagadoPor: UUID;
   notas?: string;
 }
@@ -40,9 +41,10 @@ export interface Purchase {
   id: UUID;
   fecha: string;
   producto: string;
+  categoria: string;
   cantidad: number;
   precioUnitario: number;
-  destinatario: UUID; // participant id
+  destinatario: UUID;
   pagadoPor: UUID;
   incluirComoGasto: boolean;
   notas?: string;
@@ -52,10 +54,10 @@ export interface Trip {
   id: UUID;
   nombre: string;
   destino: string;
-  moneda: string; // ej. USD
+  moneda: string;
   fechaInicio: string;
   fechaFin: string;
-  participantes: [Participant, Participant]; // exactamente dos
+  participantes: [Participant, Participant];
   gastos: Expense[];
   actividades: Activity[];
   compras: Purchase[];
