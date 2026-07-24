@@ -63,17 +63,17 @@ export function TripSelector({ state, onChange }: Props) {
           </option>
         ))}
       </select>
-      <button type="button" className="btn-ghost" onClick={() => setCreando(true)}>
+      <button type="button" className="btn-outline-onprimary" onClick={() => setCreando(true)}>
         + Nuevo viaje
       </button>
       {activo && (
         <>
-          <button type="button" className="btn-ghost" onClick={() => setEditando(activo)}>
+          <button type="button" className="btn-outline-onprimary" onClick={() => setEditando(activo)}>
             Editar viaje
           </button>
           <button
             type="button"
-            className="btn-ghost"
+            className="btn-outline-onprimary"
             onClick={() => setConfirmarBorrar(activo)}
             aria-label={`Eliminar viaje ${activo.nombre}`}
           >
