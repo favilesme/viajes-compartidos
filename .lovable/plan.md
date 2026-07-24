@@ -1,112 +1,109 @@
-# Viajes Compartidos — Plan de proyecto
 
-Aplicación web para publicar y buscar viajes compartidos entre conductores y pasajeros, con reserva de asientos y contacto directo.
+# Plan: Cloud + Anima Praxis rebrand
 
-## Supuestos (confírmame si algo cambia)
+## 1. Habilitar Lovable Cloud
 
-- Público: personas en LATAM que quieren compartir trayectos urbanos e interurbanos.
-- Idioma: español, tratamiento "tú".
-- Alcance inicial: MVP funcional, no marketplace con pagos.
-- Backend: Lovable Cloud (auth + base de datos + storage para foto de perfil).
-- Sin pagos en línea en el MVP; el pago se acuerda entre partes.
-- Sin app móvil nativa; web responsiva mobile-first.
+Activo Lovable Cloud (Supabase gestionado). No expondré el nombre Supabase en la UI.
 
-## Funcionalidades del MVP
+## 2. Modelo de datos (migración SQL)
 
-1. **Autenticación**
-   - Registro e inicio de sesión con email + contraseña.
-   - Perfil de usuario: nombre, teléfono (WhatsApp), foto, breve bio, rol preferido (conductor/pasajero/ambos).
+Un solo "workspace" compartido: cualquier dispositivo con el passcode ve los mismos viajes.
 
-2. **Publicar viaje (conductor)**
-   - Origen, destino, fecha y hora de salida.
-   - Asientos disponibles, precio por asiento, modelo/color del auto, notas (equipaje, mascotas, música).
-   - Punto de encuentro y punto de bajada.
+Tablas en `public`, con RLS + GRANTs explícitos:
 
-3. **Buscar viajes (pasajero)**
-   - Filtros: origen, destino, fecha, asientos requeridos, rango de precio.
-   - Listado con tarjetas: conductor, hora, precio, asientos libres.
-   - Detalle del viaje con mapa estático opcional (fase 2).
+- `workspaces` — `id`, `passcode_hash` (SHA-256), `created_at`. Semilla: un workspace inicial con el hash actual (`1b3affbe…`).
+- `trips` — `id`, `workspace_id`, `nombre`, `destino`, `moneda`, `fecha_inicio`, `fecha_fin`, `created_at`.
+- `participants` — `id`, `trip_id`, `nombre`, `orden` (0/1).
+- `expenses` — `id`, `trip_id`, `fecha`, `categoria`, `descripcion`, `monto`, `pagado_por` (fk participants), `notas`, `source_type` ('manual'|'actividad'|'compra'), `source_id`, `created_at`.
+- `activities` — `id`, `trip_id`, `titulo`, `fecha`, `lugar`, `estado`, `costo`, `pagado_por`, `notas`.
+- `purchases` — `id`, `trip_id`, `producto`, `categoria`, `cantidad`, `precio_unitario`, `destinatario`, `pagado_por`, `incluir_como_gasto`, `notas`, `fecha`.
 
-4. **Reserva de asientos**
-   - Solicitud de reserva (1+ asientos) sujeta a aprobación del conductor.
-   - Estados: pendiente, aceptada, rechazada, cancelada.
-   - Descuento automático de asientos disponibles al aceptar.
+Restricciones: `participants` limitado a 2 por trip vía trigger; FKs con `ON DELETE CASCADE`.
 
-5. **Panel del usuario**
-   - Mis viajes publicados (como conductor).
-   - Mis reservas (como pasajero).
-   - Historial de viajes pasados.
+### RLS (passcode compartido)
 
-6. **Contacto**
-   - Botón para abrir WhatsApp con el conductor una vez aceptada la reserva.
+- No hay `auth.users`. El acceso lo controla una **sesión firmada** en cookie (server function la emite tras validar passcode).
+- Todas las lecturas/escrituras van por **server functions** (`createServerFn`) que verifican la cookie de sesión y luego usan `supabaseAdmin` para operar sobre las filas del `workspace_id` correspondiente.
+- RLS: `USING (false)` para `anon` y `authenticated` en todas las tablas (nadie accede al Data API directo). `service_role` opera vía server functions.
+- GRANTs: `GRANT ALL … TO service_role` en cada tabla; nada para `anon`/`authenticated`.
 
-7. **Confianza básica**
-   - Calificación 1–5 estrellas + comentario tras finalizar un viaje (fase 2 si el tiempo aprieta).
+Ventaja: el passcode nunca sale del servidor, y el hash SHA-256 se compara con `timingSafeEqual`.
 
-## Estructura de rutas (TanStack Start)
+## 3. Autenticación (passcode compartido)
 
-```text
-src/routes/
-  __root.tsx              layout, header, footer
-  index.tsx               landing: hero + buscador + cómo funciona
-  buscar.tsx              resultados de búsqueda
-  viajes.$id.tsx          detalle del viaje + solicitar reserva
-  publicar.tsx            formulario para conductor (protegida)
-  mis-viajes.tsx          panel del conductor (protegida)
-  mis-reservas.tsx        panel del pasajero (protegida)
-  perfil.tsx              editar perfil (protegida)
-  auth.tsx                login / registro
-  como-funciona.tsx       explicación en 3 pasos
-  seguridad.tsx           recomendaciones de uso seguro
-  contacto.tsx            formulario de contacto y soporte
-```
+- Nuevo endpoint `unlockWorkspace` (`createServerFn`): recibe passcode, calcula SHA-256, compara con `workspaces.passcode_hash`, firma cookie httpOnly (`iron-session` estilo `useSession`) con `workspace_id`.
+- `lockWorkspace`: limpia la sesión.
+- Middleware `requireWorkspace` para todas las server functions de datos: lee la cookie, adjunta `workspaceId` al contexto, o lanza 401.
+- Secretos: `SESSION_SECRET` (generado con `generate_secret`), `SITE_PASSWORD_HASH` (ya sembrado en DB, no en env).
+- Cliente: reemplazo `src/components/Login.tsx` para llamar a `unlockWorkspace` en vez de comparar hash local. Sigue siendo puerta básica, no auth empresarial (comentario).
 
-Cada ruta con su propio `head()` (title, description, og:title, og:description).
+## 4. Capa de datos con TanStack Query
 
-## Modelo de datos (Lovable Cloud)
+- Nuevo `src/lib/trips.functions.ts` con server functions: `listTrips`, `upsertTrip`, `deleteTrip`, `upsertExpense`, `deleteExpense`, `upsertActivity`, `deleteActivity`, `upsertPurchase`, `deletePurchase`.
+- Cada mutación de actividad/compra que produce gasto vinculado hace el `upsert` del `expenses` con `source_type` correspondiente dentro de la misma transacción (RPC PL/pgSQL) para conservar la lógica actual sin duplicados.
+- `queryOptions(['trips', workspaceId])` cacheados; invalidación tras cada mutación.
+- Realtime: suscripción a canales `postgres_changes` de `trips/expenses/activities/purchases` filtrados por `workspace_id` → `queryClient.invalidateQueries` (sincroniza dispositivos casi en vivo tras auth).
+- `localStorage` deja de ser fuente de verdad; queda solo `activeTripId` local por dispositivo.
 
-- `profiles` — id (fk auth.users), nombre, teléfono, foto_url, bio, rol_preferido.
-- `trips` — id, driver_id, origen, destino, fecha_salida, asientos_totales, asientos_disponibles, precio, auto_modelo, notas, estado (activo, completo, cancelado).
-- `bookings` — id, trip_id, passenger_id, asientos, estado (pendiente/aceptada/rechazada/cancelada), created_at.
-- `user_roles` — separado, con enum (`user`, `admin`) y función `has_role` (por seguridad).
-- `ratings` (fase 2) — trip_id, rater_id, rated_id, estrellas, comentario.
+## 5. Migración de datos existentes
 
-RLS activo en todas las tablas; grants explícitos a `authenticated` y `service_role`.
+- `storage.ts` conserva un helper único `migrateLocalToCloud()` que empuja el snapshot local al workspace la primera vez que el usuario entra (opt-in con confirmación) y luego marca `migrated=true` en localStorage.
+- Datos demo de Cuenca: sembrados vía migración SQL en el workspace inicial si está vacío.
 
-## Diseño visual
+## 6. Paleta Anima Praxis (sin logo)
 
-Estilo limpio, confiable, moderno, orientado a movilidad:
+Reemplazo tokens en `src/styles.css` (`@theme inline` + `:root`) con oklch equivalente:
 
-- Paleta: verde profundo `#0F5132` (confianza/movilidad), acento arena `#E8DFD1`, fondo blanco cálido, texto grafito.
-- Tipografía: sans-serif geométrica (Manrope/Inter) — títulos con peso 700, cuerpo 400–500.
-- Tarjetas de viaje con jerarquía clara: ruta grande, hora y precio destacados, avatar del conductor.
-- Mobile-first, mucho aire, CTA único por pantalla.
-- Todos los colores como tokens semánticos en `src/styles.css` (formato oklch).
+- `--background`: crema muy claro (fondos)
+- `--foreground` / `--primary`: **#192538** azul profundo
+- `--secondary` / `--muted`: **#5A626F** gris pizarra (y variantes claras)
+- `--accent`: **#D6A871** dorado suave (uso puntual, no dominante)
+- `--card`: blanco puro
+- `--destructive`: rojo con contraste AA sobre blanco
+- Se retiran tokens `emerald/cream/orange`; sustituyo referencias en componentes por `primary/secondary/accent`.
 
-## Fuera de alcance (MVP)
+Header: bloque tipográfico "Anima Praxis · Viajes Compartidos" (wordmark) en azul profundo, sin imagen.
 
-- Pagos en línea, comisiones, facturación.
-- Mapas interactivos y ruta en tiempo real.
-- Verificación de identidad con documento oficial.
-- Chat interno (se resuelve con WhatsApp).
-- App móvil nativa.
+## 7. Auditoría de contraste (WCAG AA)
 
-## Plan de implementación por fases
+Reviso y ajusto:
 
-1. Activar Lovable Cloud, crear tablas, RLS, roles.
-2. Sistema de diseño en `styles.css` + layout raíz con header/footer y navegación.
-3. Auth (registro, login, perfil).
-4. Publicar viaje + listado "Mis viajes".
-5. Buscar viajes + detalle + solicitar reserva.
-6. Panel de reservas (conductor acepta/rechaza; pasajero ve estado).
-7. Páginas informativas (cómo funciona, seguridad, contacto) + SEO por ruta.
-8. Sitemap.xml y robots.txt.
+- Botones `.btn-primary`, `.btn-accent`, `.btn-danger`, `.btn-ghost`: garantizo ratio ≥4.5:1 texto/fondo en estados normal, hover, disabled (disabled con borde visible, no solo opacity).
+- Badges `badge-status` (usadas para estado de actividad, origen de gasto): fondos con foreground contrastado; el naranja actual sobre blanco falla → sustituyo por dorado/azul según semántica.
+- `field-input` placeholder: `text-muted-foreground` sobre `card`.
+- `focus-visible`: outline dorado 2px, offset 2px (ya existe, verifico visibilidad sobre todos los fondos).
+- Enlaces y labels: `text-muted-foreground` recalibrado a oklch con L≤0.45 sobre crema para pasar AA.
+- Verifico con contraste manual (fórmula APCA/relativa) los pares clave y ajusto valores oklch.
 
-## Preguntas antes de construir
+## 8. Accesibilidad general
 
-1. ¿Es correcto el alcance MVP (sin pagos, contacto vía WhatsApp)?
-2. ¿Prefieres la paleta verde propuesta u otra (azul, naranja, negro)?
-3. ¿Necesitas login social (Google) además de email + contraseña?
-4. ¿Nombre público exacto de la marca? (¿"Viajes Compartidos" o algo propio?)
+- Un solo `<main>` en la shell.
+- Botones icon-only con `aria-label` (revisar `TripSelector`, `ConfirmDialog`).
+- Diálogos ya son `role="dialog" aria-modal`; añado trap de foco con `useEffect` mínimo.
+- Sin errores en consola tras cambios.
 
-Cuando apruebes (y respondas lo anterior si quieres ajustar), paso a construir.
+## 9. IA (sin cambios)
+
+`ResumenInteligente` sigue deshabilitado con `AI_FEATURE.enabled=false`.
+
+## 10. Verificación
+
+- Typecheck limpio.
+- Preview: unlock con passcode, crear gasto en un navegador, ver que aparece al recargar en otro contexto (realtime).
+- Auditoría visual de las 8 secciones con la nueva paleta.
+- Consola sin warnings.
+
+## Detalles técnicos
+
+- Server functions bajo `src/lib/*.functions.ts`; `supabaseAdmin` cargado con `await import` dentro del handler.
+- Cookie de sesión: `useSession` de `@tanstack/react-start/server`, cookie httpOnly + secure + sameSite lax, 7 días.
+- `functionMiddleware` no requiere `attachSupabaseAuth` (no usamos JWT Supabase); la cookie viaja sola.
+- Realtime: cliente browser `supabase` con publishable key; canal filtrado por `workspace_id` que el server function le entrega tras unlock (no es secreto, solo un uuid).
+- Sin nuevas dependencias npm (uso `crypto` de Node, `@tanstack/react-start/server`, cliente Supabase generado).
+
+## Fuera de alcance
+
+- Logo (por decisión del usuario).
+- Cuentas por usuario / roles.
+- IA generativa.
+- Nueva funcionalidad de dominio (mantengo secciones actuales tal cual).
