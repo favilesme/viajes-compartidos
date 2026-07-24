@@ -27,26 +27,45 @@ export function useCloudState() {
 
   const workspaceId = data?.workspaceId ?? null;
 
-  // Suscripción realtime al beacon público del workspace: cuando otro
-  // dispositivo guarda, invalidamos la query y recargamos el snapshot.
+  // Sincronización entre dispositivos por Realtime **Broadcast**: no requiere
+  // lectura pública a ninguna tabla. Un tab identifica sus propios envíos con
+  // `senderId` para no recargarse a sí mismo tras guardar.
+  const senderIdRef = useRef<string>(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2),
+  );
+  const broadcastRef = useRef<((payload: { senderId: string }) => void) | null>(
+    null,
+  );
+
   useEffect(() => {
-    if (!workspaceId) return;
-    const channel = supabase
-      .channel(`workspace-sync-${workspaceId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "workspace_sync",
-          filter: `workspace_id=eq.${workspaceId}`,
-        },
-        () => {
-          queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY });
-        },
-      )
-      .subscribe();
+    if (!workspaceId) {
+      broadcastRef.current = null;
+      return;
+    }
+    const channel = supabase.channel(`workspace-sync-${workspaceId}`, {
+      config: { broadcast: { self: false, ack: false } },
+    });
+    channel.on("broadcast", { event: "snapshot-updated" }, (msg) => {
+      const senderId = (msg.payload as { senderId?: string } | undefined)
+        ?.senderId;
+      if (senderId === senderIdRef.current) return;
+      queryClient.invalidateQueries({ queryKey: SNAPSHOT_KEY });
+    });
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        broadcastRef.current = (payload) => {
+          void channel.send({
+            type: "broadcast",
+            event: "snapshot-updated",
+            payload,
+          });
+        };
+      }
+    });
     return () => {
+      broadcastRef.current = null;
       supabase.removeChannel(channel);
     };
   }, [workspaceId, queryClient]);
@@ -65,6 +84,9 @@ export function useCloudState() {
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.previous) queryClient.setQueryData(SNAPSHOT_KEY, ctx.previous);
+    },
+    onSuccess: () => {
+      broadcastRef.current?.({ senderId: senderIdRef.current });
     },
   });
 
