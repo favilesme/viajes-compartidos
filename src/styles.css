@@ -199,7 +199,23 @@
   min-height: 2.25rem;
   &:hover:not(:disabled) {
     background-color: oklch(0.99 0.005 90 / 0.15);
+    color: var(--color-primary-foreground);
   }
+}
+
+/* Refuerzo específico para acciones dentro del header primario: mantiene
+   contraste alto en reposo, hover y foco aunque otra utilidad herede color. */
+header [data-header-action="true"] {
+  color: var(--color-primary-foreground) !important;
+  border-color: color-mix(in oklab, var(--color-primary-foreground) 62%, transparent) !important;
+  background-color: transparent !important;
+}
+
+header [data-header-action="true"]:hover:not(:disabled),
+header [data-header-action="true"]:focus-visible:not(:disabled) {
+  color: var(--color-primary-foreground) !important;
+  border-color: var(--color-primary-foreground) !important;
+  background-color: color-mix(in oklab, var(--color-primary-foreground) 16%, transparent) !important;
 }
 
 @utility btn-danger {
