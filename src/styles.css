@@ -206,16 +206,17 @@
 /* Refuerzo específico para acciones dentro del header primario: mantiene
    contraste alto en reposo, hover y foco aunque otra utilidad herede color. */
 header [data-header-action="true"] {
-  color: var(--color-primary-foreground) !important;
-  border-color: color-mix(in oklab, var(--color-primary-foreground) 62%, transparent) !important;
-  background-color: transparent !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary-foreground) !important;
+  background-color: var(--color-primary-foreground) !important;
+  box-shadow: 0 1px 0 color-mix(in oklab, var(--color-primary) 18%, transparent);
 }
 
 header [data-header-action="true"]:hover:not(:disabled),
 header [data-header-action="true"]:focus-visible:not(:disabled) {
-  color: var(--color-primary-foreground) !important;
-  border-color: var(--color-primary-foreground) !important;
-  background-color: color-mix(in oklab, var(--color-primary-foreground) 16%, transparent) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-accent) !important;
+  background-color: color-mix(in oklab, var(--color-accent) 88%, var(--color-primary-foreground)) !important;
 }
 
 @utility btn-danger {
