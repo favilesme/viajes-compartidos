@@ -14,7 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      workspace_sync: {
+        Row: {
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_sync_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: true
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspaces: {
+        Row: {
+          created_at: string
+          id: string
+          passcode_hash: string
+          snapshot: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          passcode_hash: string
+          snapshot?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          passcode_hash?: string
+          snapshot?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
