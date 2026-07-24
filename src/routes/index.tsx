@@ -1,23 +1,30 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { Login } from "../components/Login";
 import { App } from "../components/App";
-import { isSessionActive } from "../lib/auth";
+import { getWorkspaceSession } from "../lib/workspace.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Viajes Compartidos — Gestión colaborativa de viajes entre dos" },
+      {
+        title:
+          "Viajes Compartidos · Anima Praxis — gestión colaborativa de viajes",
+      },
       {
         name: "description",
         content:
-          "Aplicación interna para registrar gastos, actividades, compras y liquidar cuentas 50/50 entre dos participantes.",
+          "Aplicación interna de Anima Praxis para registrar gastos, actividades y compras de un viaje con liquidación 50/50 sincronizada entre dispositivos.",
       },
-      { property: "og:title", content: "Viajes Compartidos" },
+      {
+        property: "og:title",
+        content: "Viajes Compartidos · Anima Praxis",
+      },
       {
         property: "og:description",
         content:
-          "Gestiona gastos, actividades y compras de un viaje entre dos personas con liquidación automática 50/50.",
+          "Gestión colaborativa de viajes entre dos personas con sincronización segura entre dispositivos.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -27,16 +34,39 @@ export const Route = createFileRoute("/")({
 });
 
 function IndexPage() {
-  // Comprobación en efecto para evitar mismatch de hidratación SSR.
-  const [autenticado, setAutenticado] = useState(false);
-  const [hidratado, setHidratado] = useState(false);
+  const queryClient = useQueryClient();
+  const sessionFn = useServerFn(getWorkspaceSession);
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["workspace-session"],
+    queryFn: () => sessionFn(),
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    setAutenticado(isSessionActive());
-    setHidratado(true);
-  }, []);
+  if (isLoading) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center">
+        <p className="text-sm text-muted-foreground">Cargando…</p>
+      </main>
+    );
+  }
 
-  if (!hidratado) return null;
-  if (!autenticado) return <Login onAcceso={() => setAutenticado(true)} />;
-  return <App onCerrarSesion={() => setAutenticado(false)} />;
+  if (!data?.workspaceId) {
+    return (
+      <Login
+        onAcceso={() => {
+          refetch();
+        }}
+      />
+    );
+  }
+
+  return (
+    <App
+      onCerrarSesion={() => {
+        queryClient.setQueryData(["workspace-session"], { workspaceId: null });
+        queryClient.removeQueries({ queryKey: ["workspace-snapshot"] });
+        refetch();
+      }}
+    />
+  );
 }

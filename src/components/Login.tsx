@@ -1,12 +1,18 @@
-// Pantalla de acceso — barrera básica, NO autenticación empresarial.
+// Pantalla de acceso — barrera básica compartida (NO autenticación empresarial).
+// Envía la contraseña al servidor, que valida su SHA-256 contra el hash
+// almacenado en la nube y firma una cookie httpOnly de sesión.
 import { useState } from "react";
-import { verifyPassword, openSession } from "../lib/auth";
+import { useServerFn } from "@tanstack/react-start";
+import { useQueryClient } from "@tanstack/react-query";
+import { unlockWorkspace } from "../lib/workspace.functions";
 
 interface Props {
   onAcceso: () => void;
 }
 
 export function Login({ onAcceso }: Props) {
+  const unlock = useServerFn(unlockWorkspace);
+  const queryClient = useQueryClient();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
@@ -16,31 +22,32 @@ export function Login({ onAcceso }: Props) {
     setError(null);
     setCargando(true);
     try {
-      const ok = await verifyPassword(password);
-      if (!ok) {
+      const res = await unlock({ data: { password } });
+      if (!res.ok) {
         setError("Contraseña incorrecta.");
         return;
       }
-      openSession();
+      await queryClient.invalidateQueries();
       onAcceso();
+    } catch {
+      setError("No se pudo verificar el acceso. Intenta de nuevo.");
     } finally {
       setCargando(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
+    <main className="flex min-h-dvh items-center justify-center px-4">
       <div className="w-full max-w-sm card-surface">
         <div className="mb-5 text-center">
-          <div
-            aria-hidden="true"
-            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-brand text-brand-foreground text-xl font-bold"
-          >
-            VC
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">Viajes Compartidos</h1>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+            Anima Praxis
+          </p>
+          <h1 className="mt-2 text-xl font-semibold text-foreground">
+            Viajes Compartidos
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Ingresa la contraseña para continuar.
+            Ingresa la contraseña compartida para continuar.
           </p>
         </div>
         <form onSubmit={onSubmit} noValidate>
@@ -78,8 +85,9 @@ export function Login({ onAcceso }: Props) {
           </button>
         </form>
         <p className="mt-4 text-xs text-muted-foreground">
-          Acceso básico protegido con SHA-256 en el navegador. La sesión se guarda
-          únicamente en la pestaña actual.
+          Acceso básico protegido con SHA-256 y una cookie firmada. Los datos se
+          sincronizan de forma segura entre dispositivos que compartan la
+          contraseña.
         </p>
       </div>
     </main>
