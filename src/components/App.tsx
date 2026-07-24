@@ -93,6 +93,7 @@ export function App({ onCerrarSesion }: Props) {
               type="button"
               onClick={logout}
               className="btn-outline-onprimary"
+              data-header-action="true"
               aria-label="Cerrar sesión"
             >
               Cerrar sesión
