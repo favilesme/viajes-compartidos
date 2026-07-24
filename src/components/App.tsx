@@ -1,9 +1,10 @@
-// Shell principal: gestiona el estado global, la navegación por pestañas,
-// el cierre de sesión y renderiza la vista activa.
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AppState, Trip } from "../lib/types";
-import { loadState, saveState } from "../lib/storage";
-import { closeSession } from "../lib/auth";
+// Shell principal: usa el estado sincronizado en la nube (useCloudState),
+// gestiona la navegación por pestañas y el cierre de sesión.
+import { useCallback, useMemo, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import type { Trip } from "../lib/types";
+import { useCloudState } from "../lib/useCloudState";
+import { lockWorkspace } from "../lib/workspace.functions";
 import { TripSelector } from "./TripSelector";
 import { Inicio } from "./Inicio";
 import { Gastos } from "./Gastos";
@@ -37,12 +38,9 @@ interface Props {
 }
 
 export function App({ onCerrarSesion }: Props) {
-  const [state, setState] = useState<AppState>(() => loadState());
+  const { state, setState, isLoading, guardando } = useCloudState();
+  const lockFn = useServerFn(lockWorkspace);
   const [tab, setTab] = useState<Tab>("inicio");
-
-  useEffect(() => {
-    saveState(state);
-  }, [state]);
 
   const tripActivo = useMemo<Trip | null>(
     () => state.trips.find((t) => t.id === state.activeTripId) ?? null,
@@ -56,36 +54,45 @@ export function App({ onCerrarSesion }: Props) {
         trips: s.trips.map((t) => (t.id === nuevo.id ? nuevo : t)),
       }));
     },
-    [],
+    [setState],
   );
 
-  function logout() {
-    closeSession();
-    onCerrarSesion();
+  async function logout() {
+    try {
+      await lockFn();
+    } finally {
+      onCerrarSesion();
+    }
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b bg-brand text-brand-foreground">
+    <div className="min-h-dvh">
+      <header className="border-b bg-primary text-primary-foreground">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-          <div className="flex items-center gap-3">
-            <div
-              aria-hidden="true"
-              className="flex h-9 w-9 items-center justify-center rounded-lg bg-orange text-orange-foreground text-sm font-bold"
-            >
-              VC
-            </div>
-            <div>
-              <h1 className="text-base font-semibold leading-tight">Viajes Compartidos</h1>
-              <p className="text-xs opacity-80">Gestión colaborativa entre dos personas</p>
-            </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-accent">
+              Anima Praxis
+            </p>
+            <h1 className="text-base font-semibold leading-tight">
+              Viajes Compartidos
+            </h1>
+            <p className="text-xs opacity-80">
+              Gestión colaborativa sincronizada entre dispositivos
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="text-xs opacity-80"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {guardando ? "Guardando…" : "Sincronizado"}
+            </span>
             <TripSelector state={state} onChange={setState} />
             <button
               type="button"
               onClick={logout}
-              className="btn-ghost bg-transparent text-brand-foreground border-brand-foreground/40 hover:bg-brand-foreground/10"
+              className="btn-outline-onprimary"
               aria-label="Cerrar sesión"
             >
               Cerrar sesión
@@ -108,7 +115,7 @@ export function App({ onCerrarSesion }: Props) {
                     className={`rounded-t-md px-3 py-2 text-sm font-medium transition-colors ${
                       activo
                         ? "bg-background text-foreground"
-                        : "text-brand-foreground/80 hover:bg-brand-foreground/10"
+                        : "text-primary-foreground/90 hover:bg-primary-foreground/15"
                     }`}
                   >
                     {t.label}
@@ -126,7 +133,11 @@ export function App({ onCerrarSesion }: Props) {
         aria-labelledby={`tab-${tab}`}
         className="mx-auto max-w-6xl px-4 py-6"
       >
-        {!tripActivo ? (
+        {isLoading ? (
+          <div className="card-surface text-center text-muted-foreground">
+            Cargando datos del viaje…
+          </div>
+        ) : !tripActivo ? (
           <div className="card-surface text-center">
             <p className="text-muted-foreground">
               No hay viaje activo. Crea uno desde la barra superior para empezar.
@@ -150,7 +161,7 @@ export function App({ onCerrarSesion }: Props) {
       </main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-8 text-center text-xs text-muted-foreground">
-        Viajes Compartidos — datos guardados localmente en tu navegador.
+        Anima Praxis · Viajes Compartidos — datos sincronizados en Lovable Cloud.
       </footer>
     </div>
   );
